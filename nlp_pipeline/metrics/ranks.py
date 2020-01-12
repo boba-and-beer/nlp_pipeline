@@ -3,7 +3,8 @@ Ranking Metrics.
 Current Implementations: 
 - SpearmanRho
 """
-
+from fastai.text import *
+from fastai.callbacks.tracker import *
 
 class SpearmanRho(Callback):
     """

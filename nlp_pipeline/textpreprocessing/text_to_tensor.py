@@ -57,7 +57,7 @@ class Text2Tensor:
         self.pad_idx = self.tokeniser.pad_token_id
 
     def convert_text_to_tensor(
-        self, text: pd.Series, head_len=None, return_tensors="pt", **encode_params
+        self, text: pd.Series, head_len=None, return_tensors="pt", max_length=None, **encode_params
     ):
         """
         Text -> Match to ID
@@ -69,6 +69,7 @@ class Text2Tensor:
                 text.iloc[i],
                 head_len=head_len,
                 return_tensors=return_tensors,
+                max_length=max_length,
                 **encode_params
             )
             train_tensors.append(input_ids)
@@ -100,7 +101,6 @@ class Text2Tensor:
             )
         except:
             import pdb
-
             pdb.set_trace()
 
         input_ids = encoded_tokens["input_ids"]
@@ -114,8 +114,18 @@ class Text2Tensor:
         tail_len = max_length - head_len
 
         # Taking the head and tail
-        if isinstance(input_ids[0], torch.Tensor):
+        if isinstance(input_ids[0], int):
+            head_tokens = input_ids[:head_len]
+            if tail_len == 0:
+                input_ids = head_tokens
+            else:
+                tail_tokens = input_ids[-tail_len:]
+                input_ids = head_tokens + tail_tokens
+            attention_mask = attention_mask[:(max_length)]
+            return input_ids, attention_mask
+        else:
             head_tokens = input_ids[:, :head_len]
+            attention_mask = attention_mask[:, :head_len]
             if tail_len == 0:
                 input_ids = head_tokens
             else:
@@ -124,13 +134,9 @@ class Text2Tensor:
 
             if input_ids.dim() == 1:
                 input_ids = input_ids.unsqueeze(0)
-
+            
+            
+            if input_ids.size()[1] > 512:
+                import pdb; pdb.set_trace()
             return input_ids.flatten(), attention_mask.flatten()
-        else:
-            head_tokens = input_ids[:head_len]
-            if tail_len == 0:
-                input_ids = head_tokens
-            else:
-                tail_tokens = input_ids[-tail_len:]
-                input_ids = head_tokens + tail_tokens
-            return input_ids, attention_mask
+           

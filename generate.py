@@ -58,6 +58,8 @@ pretrain_model.choose_model("bert")
 #####################################
 dl_logger.info("Adding features that need to be be added to the pooler.")
 
+# Used For Naming The Models 
+feature_set = "head_features_9"
 
 def get_features(train, test, pretrain_model):
     """Generate a few features here"""
@@ -217,6 +219,7 @@ train, test, ss, ANSWER_FEATURES, QUESTION_FEATURES = get_features(
 QUESTION_ALL = QUESTION_COLS + QUESTION_FEATURES
 ANSWER_ALL = ANSWER_COLS + ANSWER_FEATURES
 
+
 # outputting engineered data
 train.to_csv("googlequestchallenge/data/train_engineered.csv")
 test.to_csv("googlequestchallenge/data/test_engineered.csv")
@@ -227,206 +230,209 @@ CAT_FEATURES = [
     if col.startswith("subcat") or col.startswith("category")
 ]
 
-dl_logger.info("Using multilabel stratified split with 90 percent of data.")
 
-for i in range(10):
+#####################################
+### Torch Datasets
+#####################################
+class QuestDataset(Dataset):
+    def __init__(
+        self,
+        embed_tensors: List[torch.Tensor],
+        attention_tensors: List[torch.Tensor],
+        label_tensors: torch.FloatTensor = None,
+        engineered_features=None,
+    ):
 
-    #####################################
-    ### Splitting the words
-    #####################################
+        if engineered_features is not None:
+            self.x = list(
+                zip(embed_tensors, attention_tensors, engineered_features)
+            )
+        else:
+            self.x = list(zip(embed_tensors, attention_tensors))
+        self.y = label_tensors
 
-    # Splitting Questions
-    train_q_x, train_q_y, valid_q_x, valid_q_y = train_test_split(
-        train,
-        split_method=multilabelstratsplit,
-        model_cols=QUESTION_ALL + CAT_FEATURES,
-        model_labels=QUESTION_LABELS,
-        group_col=train["question_title"],
-        index=i,
-        num_of_splits=10,
-        random_state=SEED,
-    )
+    def __len__(self):
+        return len(self.x)
 
-    # Splitting answers
-    train_ans_x, train_ans_y, valid_ans_x, valid_ans_y = train_test_split(
-        train,
-        split_method=multilabelstratsplit,
-        model_cols=ANSWER_ALL + CAT_FEATURES,
-        model_labels=ANSWER_LABELS,
-        group_col=train["question_title"],
-        index=i,
-        num_of_splits=10,
-        random_state=SEED,
-    )
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
 
-    test_q_x = test[QUESTION_ALL + CAT_FEATURES]
-    test_ans_x = test[ANSWER_ALL + CAT_FEATURES]
 
-    #####################################
-    ### Create Text Data Into Pandas Series
-    #####################################
-    train_questions = train_q_x["question_title"] + train_q_x["question_body"]
-    train_answers = train_ans_x["answer"]
+if __name__ == "__main__":
+    for i in range(10):
 
-    valid_questions = valid_q_x["question_title"] + valid_q_x["question_body"]
-    valid_answers = valid_ans_x["answer"]
+        #####################################
+        ### Splitting the words
+        #####################################
+        dl_logger.info("Using multilabel stratified split with 90 percent of data.")
 
-    test_questions = test_q_x["question_title"] + test_q_x["question_body"]
-    test_answers = test_ans_x["answer"]
+        # Splitting Questions
+        train_q_x, train_q_y, valid_q_x, valid_q_y = train_test_split(
+            train,
+            split_method=multilabelstratsplit,
+            model_cols=QUESTION_ALL + CAT_FEATURES,
+            model_labels=QUESTION_LABELS,
+            group_col=train["question_title"],
+            index=i,
+            num_of_splits=10,
+            random_state=SEED,
+        )
 
-    #####################################
-    ### Converting Text to tensor
-    #####################################
+        # Splitting answers
+        train_ans_x, train_ans_y, valid_ans_x, valid_ans_y = train_test_split(
+            train,
+            split_method=multilabelstratsplit,
+            model_cols=ANSWER_ALL + CAT_FEATURES,
+            model_labels=ANSWER_LABELS,
+            group_col=train["question_title"],
+            index=i,
+            num_of_splits=10,
+            random_state=SEED,
+        )
 
-    dl_logger.info("Tokenising data using only head")
+        test_q_x = test[QUESTION_ALL + CAT_FEATURES]
+        test_ans_x = test[ANSWER_ALL + CAT_FEATURES]
 
-    # Input dataset
-    train_q_input_list, train_q_att_list = pretrain_model.convert_text_to_tensor(
-        train_questions, head_prop=1
-    )
-    train_ans_input_list, train_ans_att_list = pretrain_model.convert_text_to_tensor(
-        train_answers, head_prop=1
-    )
+        #####################################
+        ### Create Text Data Into Pandas Series
+        #####################################
+        train_questions = train_q_x["question_title"] + train_q_x["question_body"]
+        train_answers = train_ans_x["answer"]
 
-    # Validation dataset
-    valid_q_input_list, valid_q_att_list = pretrain_model.convert_text_to_tensor(
-        valid_questions, head_prop=1
-    )
-    valid_ans_input_list, valid_ans_att_list = pretrain_model.convert_text_to_tensor(
-        valid_answers, head_prop=1
-    )
+        valid_questions = valid_q_x["question_title"] + valid_q_x["question_body"]
+        valid_answers = valid_ans_x["answer"]
 
-    # Test dataset
-    test_q_input_list, test_q_att_list = pretrain_model.convert_text_to_tensor(
-        test_questions, head_prop=1
-    )
-    test_ans_input_list, test_ans_att_list = pretrain_model.convert_text_to_tensor(
-        test_answers, head_prop=1
-    )
+        test_questions = test_q_x["question_title"] + test_q_x["question_body"]
+        test_answers = test_ans_x["answer"]
 
-    # Calculate the train tensors
-    train_q_label_tensors = torch.FloatTensor(train_q_y[QUESTION_LABELS].values)
-    valid_q_label_tensors = torch.FloatTensor(valid_q_y[QUESTION_LABELS].values)
-    test_q_label_tensors = torch.zeros(test_q_x.size, 30)
+        #####################################
+        ### Converting Text to tensor
+        #####################################
 
-    # Calculate the label tensors
-    train_ans_label_tensors = torch.FloatTensor(train_ans_y[ANSWER_LABELS].values)
-    valid_ans_label_tensors = torch.FloatTensor(valid_ans_y[ANSWER_LABELS].values)
-    test_ans_label_tensors = torch.zeros(test_ans_x.size, 30)
+        dl_logger.info("Tokenising data using only head")
 
-    #####################################
-    ### Torch Datasets
-    #####################################
-    class QuestDataset(Dataset):
-        def __init__(
-            self,
-            embed_tensors: List[torch.Tensor],
-            attention_tensors: List[torch.Tensor],
-            label_tensors: torch.FloatTensor = None,
-            engineered_features=None,
-        ):
+        # Input dataset
+        train_q_input_list, train_q_att_list = pretrain_model.convert_text_to_tensor(
+            train_questions, head_prop=1
+        )
+        train_ans_input_list, train_ans_att_list = pretrain_model.convert_text_to_tensor(
+            train_answers, head_prop=1
+        )
 
-            if engineered_features is not None:
-                self.x = list(
-                    zip(embed_tensors, attention_tensors, engineered_features)
-                )
-            else:
-                self.x = list(zip(embed_tensors, attention_tensors))
-            self.y = label_tensors
+        # Validation dataset
+        valid_q_input_list, valid_q_att_list = pretrain_model.convert_text_to_tensor(
+            valid_questions, head_prop=1
+        )
+        valid_ans_input_list, valid_ans_att_list = pretrain_model.convert_text_to_tensor(
+            valid_answers, head_prop=1
+        )
 
-        def __len__(self):
-            return len(self.x)
+        # Test dataset
+        test_q_input_list, test_q_att_list = pretrain_model.convert_text_to_tensor(
+            test_questions, head_prop=1
+        )
+        test_ans_input_list, test_ans_att_list = pretrain_model.convert_text_to_tensor(
+            test_answers, head_prop=1
+        )
 
-        def __getitem__(self, idx):
-            return self.x[idx], self.y[idx]
+        # Calculate the train tensors
+        train_q_label_tensors = torch.FloatTensor(train_q_y[QUESTION_LABELS].values)
+        valid_q_label_tensors = torch.FloatTensor(valid_q_y[QUESTION_LABELS].values)
+        test_q_label_tensors = torch.zeros(test_q_x.size, 30)
 
-    # Question features
-    train_q_features = torch.FloatTensor(
-        train_q_x[QUESTION_FEATURES + CAT_FEATURES].values
-    )
-    valid_q_features = torch.FloatTensor(
-        valid_q_x[QUESTION_FEATURES + CAT_FEATURES].values
-    )
-    test_q_features = torch.FloatTensor(
-        test_q_x[QUESTION_FEATURES + CAT_FEATURES].values
-    )
+        # Calculate the label tensors
+        train_ans_label_tensors = torch.FloatTensor(train_ans_y[ANSWER_LABELS].values)
+        valid_ans_label_tensors = torch.FloatTensor(valid_ans_y[ANSWER_LABELS].values)
+        test_ans_label_tensors = torch.zeros(test_ans_x.size, 30)
 
-    # # Answer features
-    train_ans_features = torch.FloatTensor(
-        train_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
-    )
-    valid_ans_features = torch.FloatTensor(
-        valid_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
-    )
-    test_ans_features = torch.FloatTensor(
-        test_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
-    )
+        # Question features
+        train_q_features = torch.FloatTensor(
+            train_q_x[QUESTION_FEATURES + CAT_FEATURES].values
+        )
+        valid_q_features = torch.FloatTensor(
+            valid_q_x[QUESTION_FEATURES + CAT_FEATURES].values
+        )
+        test_q_features = torch.FloatTensor(
+            test_q_x[QUESTION_FEATURES + CAT_FEATURES].values
+        )
 
-    dl_logger.info("Creating datasets")
-    train_q_dataset = QuestDataset(
-        embed_tensors=train_q_input_list,
-        attention_tensors=train_q_att_list,
-        label_tensors=train_q_label_tensors,
-        engineered_features=train_q_features,
-    )
+        # # Answer features
+        train_ans_features = torch.FloatTensor(
+            train_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
+        )
+        valid_ans_features = torch.FloatTensor(
+            valid_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
+        )
+        test_ans_features = torch.FloatTensor(
+            test_ans_x[ANSWER_FEATURES + CAT_FEATURES].values
+        )
 
-    valid_q_dataset = QuestDataset(
-        embed_tensors=valid_q_input_list,
-        attention_tensors=valid_q_att_list,
-        label_tensors=valid_q_label_tensors,
-        engineered_features=valid_q_features,
-    )
+        dl_logger.info("Creating datasets")
+        train_q_dataset = QuestDataset(
+            embed_tensors=train_q_input_list,
+            attention_tensors=train_q_att_list,
+            label_tensors=train_q_label_tensors,
+            engineered_features=train_q_features,
+        )
 
-    test_q_dataset = QuestDataset(
-        embed_tensors=test_q_input_list,
-        attention_tensors=test_q_att_list,
-        label_tensors=valid_q_label_tensors,
-        engineered_features=test_q_features,
-    )
+        valid_q_dataset = QuestDataset(
+            embed_tensors=valid_q_input_list,
+            attention_tensors=valid_q_att_list,
+            label_tensors=valid_q_label_tensors,
+            engineered_features=valid_q_features,
+        )
 
-    train_ans_dataset = QuestDataset(
-        embed_tensors=train_ans_input_list,
-        attention_tensors=train_ans_att_list,
-        label_tensors=train_ans_label_tensors,
-        engineered_features=train_ans_features,
-    )
+        test_q_dataset = QuestDataset(
+            embed_tensors=test_q_input_list,
+            attention_tensors=test_q_att_list,
+            label_tensors=valid_q_label_tensors,
+            engineered_features=test_q_features,
+        )
 
-    valid_ans_dataset = QuestDataset(
-        embed_tensors=valid_ans_input_list,
-        attention_tensors=valid_ans_att_list,
-        label_tensors=valid_ans_label_tensors,
-        engineered_features=valid_ans_features,
-    )
+        train_ans_dataset = QuestDataset(
+            embed_tensors=train_ans_input_list,
+            attention_tensors=train_ans_att_list,
+            label_tensors=train_ans_label_tensors,
+            engineered_features=train_ans_features,
+        )
 
-    test_ans_dataset = QuestDataset(
-        embed_tensors=test_q_input_list,
-        attention_tensors=test_q_att_list,
-        label_tensors=valid_ans_label_tensors,
-        engineered_features=test_ans_features,
-    )
+        valid_ans_dataset = QuestDataset(
+            embed_tensors=valid_ans_input_list,
+            attention_tensors=valid_ans_att_list,
+            label_tensors=valid_ans_label_tensors,
+            engineered_features=valid_ans_features,
+        )
 
-    dl_logger.info("Saving dataloaders in " + DATASET_DIR)
-    create_dir(Path("googlequestchallenge/" + DATASET_DIR))
-    feature_set = "head_features_9"
-    # Saving the datasets
-    torch.save(
-        train_q_dataset, Path(DATASET_DIR, "train_q_ds_" + str(i) + "_" + feature_set)
-    )
-    torch.save(
-        valid_q_dataset, Path(DATASET_DIR, "valid_q_ds_" + str(i) + "_" + feature_set)
-    )
-    torch.save(
-        test_q_dataset, Path(DATASET_DIR, "test_q_ds_" + str(i) + "_" + feature_set)
-    )
+        test_ans_dataset = QuestDataset(
+            embed_tensors=test_q_input_list,
+            attention_tensors=test_q_att_list,
+            label_tensors=valid_ans_label_tensors,
+            engineered_features=test_ans_features,
+        )
 
-    torch.save(
-        train_ans_dataset,
-        Path(DATASET_DIR, "train_ans_ds_" + str(i) + "_" + feature_set),
-    )
-    torch.save(
-        valid_ans_dataset,
-        Path(DATASET_DIR, "valid_ans_ds_" + str(i) + "_" + feature_set),
-    )
-    torch.save(
-        test_ans_dataset, Path(DATASET_DIR, "test_ans_ds_" + str(i) + "_" + feature_set)
-    )
+        dl_logger.info("Saving dataloaders in " + DATASET_DIR)
+        create_dir(Path("googlequestchallenge/" + DATASET_DIR))
+        
+        
+        # Saving the datasets
+        torch.save(
+            train_q_dataset, Path(DATASET_DIR, "train_q_ds_" + str(i) + "_" + feature_set)
+        )
+        torch.save(
+            valid_q_dataset, Path(DATASET_DIR, "valid_q_ds_" + str(i) + "_" + feature_set)
+        )
+        torch.save(
+            test_q_dataset, Path(DATASET_DIR, "test_q_ds_" + str(i) + "_" + feature_set)
+        )
+
+        torch.save(
+            train_ans_dataset,
+            Path(DATASET_DIR, "train_ans_ds_" + str(i) + "_" + feature_set),
+        )
+        torch.save(
+            valid_ans_dataset,
+            Path(DATASET_DIR, "valid_ans_ds_" + str(i) + "_" + feature_set),
+        )
+        torch.save(
+            test_ans_dataset, Path(DATASET_DIR, "test_ans_ds_" + str(i) + "_" + feature_set)
+        )
