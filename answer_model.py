@@ -68,9 +68,9 @@ test = pd.read_csv(engineered_input_dir / "test_engineered.csv")
 #####################################
 
 # Saving the datasets
-train_ans_dataset = torch.load(DATASET_DIR + "train_ans_ds_" + str(0) + "_" + feature_set)
-valid_ans_dataset = torch.load(DATASET_DIR + "valid_ans_ds_" + str(0) + "_" + feature_set)
-test_ans_dataset = torch.load(DATASET_DIR + "test_ans_ds_" + str(0) + "_" + feature_set)
+train_ans_dataset = torch.load(DATASET_DIR + "train_ans_ds_" + str(wandb.config.fold) + "_" + feature_set)
+valid_ans_dataset = torch.load(DATASET_DIR + "valid_ans_ds_" + str(wandb.config.fold) + "_" + feature_set)
+test_ans_dataset = torch.load(DATASET_DIR + "test_ans_ds_" + str(wandb.config.fold) + "_" + feature_set)
 
 # Load in the custom tokenizer still
 pretrain_model.config.num_labels = len(ANSWER_LABELS)
@@ -107,7 +107,9 @@ model_class = BertSequenceClassification
 
 transformer_model = model_class.from_pretrained(
     PRETRAINED_MODEL_NAME, config=pretrain_model.config, dropout_rate=wandb.config.dropout,
+    hidden_layer_output=wandb.config.hidden_layer_output
 )
+
 custom_transformer_model = CustomTransformerModel(transformer_model)
 
 # Save all models here - to upload to python 

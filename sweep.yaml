@@ -1,0 +1,10 @@
+program: answer_model.py
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+parameters:
+  hidden_layer_output:
+    values: [1, 2, 3]
+  fold:
+    values: [0, 1, 2, 3, 4]
