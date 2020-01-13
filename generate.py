@@ -58,8 +58,9 @@ pretrain_model.choose_model("bert")
 #####################################
 dl_logger.info("Adding features that need to be be added to the pooler.")
 
-# Used For Naming The Models 
+# Used For Naming The Models
 feature_set = "head_features_9"
+
 
 def get_features(train, test, pretrain_model):
     """Generate a few features here"""
@@ -244,9 +245,7 @@ class QuestDataset(Dataset):
     ):
 
         if engineered_features is not None:
-            self.x = list(
-                zip(embed_tensors, attention_tensors, engineered_features)
-            )
+            self.x = list(zip(embed_tensors, attention_tensors, engineered_features))
         else:
             self.x = list(zip(embed_tensors, attention_tensors))
         self.y = label_tensors
@@ -259,7 +258,7 @@ class QuestDataset(Dataset):
 
 
 if __name__ == "__main__":
-    for i in range(10):
+    for i in range(5):
 
         #####################################
         ### Splitting the words
@@ -274,7 +273,7 @@ if __name__ == "__main__":
             model_labels=QUESTION_LABELS,
             group_col=train["question_title"],
             index=i,
-            num_of_splits=10,
+            num_of_splits=5,
             random_state=SEED,
         )
 
@@ -286,7 +285,7 @@ if __name__ == "__main__":
             model_labels=ANSWER_LABELS,
             group_col=train["question_title"],
             index=i,
-            num_of_splits=10,
+            num_of_splits=5,
             random_state=SEED,
         )
 
@@ -315,17 +314,19 @@ if __name__ == "__main__":
         train_q_input_list, train_q_att_list = pretrain_model.convert_text_to_tensor(
             train_questions, head_prop=1
         )
-        train_ans_input_list, train_ans_att_list = pretrain_model.convert_text_to_tensor(
-            train_answers, head_prop=1
-        )
+        (
+            train_ans_input_list,
+            train_ans_att_list,
+        ) = pretrain_model.convert_text_to_tensor(train_answers, head_prop=1)
 
         # Validation dataset
         valid_q_input_list, valid_q_att_list = pretrain_model.convert_text_to_tensor(
             valid_questions, head_prop=1
         )
-        valid_ans_input_list, valid_ans_att_list = pretrain_model.convert_text_to_tensor(
-            valid_answers, head_prop=1
-        )
+        (
+            valid_ans_input_list,
+            valid_ans_att_list,
+        ) = pretrain_model.convert_text_to_tensor(valid_answers, head_prop=1)
 
         # Test dataset
         test_q_input_list, test_q_att_list = pretrain_model.convert_text_to_tensor(
@@ -335,12 +336,11 @@ if __name__ == "__main__":
             test_answers, head_prop=1
         )
 
-        # Calculate the train tensors
+        # Calculate the train tens+ str(wandb.config.fold) + "_ors
         train_q_label_tensors = torch.FloatTensor(train_q_y[QUESTION_LABELS].values)
         valid_q_label_tensors = torch.FloatTensor(valid_q_y[QUESTION_LABELS].values)
         test_q_label_tensors = torch.zeros(test_q_x.size, 30)
 
-        # Calculate the label tensors
         train_ans_label_tensors = torch.FloatTensor(train_ans_y[ANSWER_LABELS].values)
         valid_ans_label_tensors = torch.FloatTensor(valid_ans_y[ANSWER_LABELS].values)
         test_ans_label_tensors = torch.zeros(test_ans_x.size, 30)
@@ -412,18 +412,17 @@ if __name__ == "__main__":
 
         dl_logger.info("Saving dataloaders in " + DATASET_DIR)
         create_dir(Path("googlequestchallenge/" + DATASET_DIR))
-        
-        
+
         # Saving the datasets
         torch.save(
-            train_q_dataset, Path(DATASET_DIR, "train_q_ds_" + str(i) + "_" + feature_set)
+            train_q_dataset,
+            Path(DATASET_DIR, "train_q_ds_" + str(i) + "_" + feature_set),
         )
         torch.save(
-            valid_q_dataset, Path(DATASET_DIR, "valid_q_ds_" + str(i) + "_" + feature_set)
+            valid_q_dataset,
+            Path(DATASET_DIR, "valid_q_ds_" + str(i) + "_" + feature_set),
         )
-        torch.save(
-            test_q_dataset, Path(DATASET_DIR, "test_q_ds_" + str(i) + "_" + feature_set)
-        )
+        torch.save(test_q_dataset, Path(DATASET_DIR, "test_q_ds_" + feature_set))
 
         torch.save(
             train_ans_dataset,
@@ -434,5 +433,5 @@ if __name__ == "__main__":
             Path(DATASET_DIR, "valid_ans_ds_" + str(i) + "_" + feature_set),
         )
         torch.save(
-            test_ans_dataset, Path(DATASET_DIR, "test_ans_ds_" + str(i) + "_" + feature_set)
+            test_ans_dataset, Path(DATASET_DIR, "test_ans_ds_" + feature_set),
         )

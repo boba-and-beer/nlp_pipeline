@@ -57,7 +57,12 @@ class Text2Tensor:
         self.pad_idx = self.tokeniser.pad_token_id
 
     def convert_text_to_tensor(
-        self, text: pd.Series, head_len=None, return_tensors="pt", max_length=None, **encode_params
+        self,
+        text: pd.Series,
+        head_len=None,
+        return_tensors="pt",
+        max_length=None,
+        **encode_params
     ):
         """
         Text -> Match to ID
@@ -101,6 +106,7 @@ class Text2Tensor:
             )
         except:
             import pdb
+
             pdb.set_trace()
 
         input_ids = encoded_tokens["input_ids"]
@@ -134,9 +140,5 @@ class Text2Tensor:
 
             if input_ids.dim() == 1:
                 input_ids = input_ids.unsqueeze(0)
-            
-            
-            if input_ids.size()[1] > 512:
-                import pdb; pdb.set_trace()
+
             return input_ids.flatten(), attention_mask.flatten()
-           

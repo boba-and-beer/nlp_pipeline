@@ -5,6 +5,8 @@ Current Implementations:
 """
 from fastai.text import *
 from fastai.callbacks.tracker import *
+from scipy.stats import spearmanr
+
 
 class SpearmanRho(Callback):
     """

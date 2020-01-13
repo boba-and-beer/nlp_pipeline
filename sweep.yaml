@@ -5,6 +5,8 @@ metric:
   name: val_loss
 parameters:
   hidden_layer_output:
-    values: [1, 2, 3]
+    values: [2] #Tested to be the best one
   fold:
     values: [0, 1, 2, 3, 4]
+  opt_func:
+    values: ["adam", "ranger"]

@@ -3,13 +3,15 @@ This module contains poolers.
 """
 import torch.nn as nn
 
+
 class BertPooler(nn.Module):
     """
-    Generic Bert Pooler
+    Generic Bert Pooler Using Number instead of config
     """
-    def __init__(self, config):
+
+    def __init__(self, hidden_size):
         super(BertPooler, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.dense = nn.Linear(hidden_size, hidden_size)
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
@@ -21,7 +23,19 @@ class BertPooler(nn.Module):
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
+
+class SimplePooler(BertPooler):
+    def forward(self, input_tensor):
+        pooled_output = self.dense(input_tensor)
+        pooled_output = self.activation(pooled_output)
+        return pooled_output
+
+
 class MeanPooler(nn.Module):
+    """
+    Use the last 2 layers to test pooling
+    """
+
     def __init__(self, config):
         super(MeanPooler, self).__init__()
         self.meanpool = nn.AvgPool1d(kernel_size=512 * 2)
@@ -36,4 +50,3 @@ class MeanPooler(nn.Module):
         pooled_output = self.dense(mean_tensor.reshape((-1, 768)))
         pooled_output = self.activation(pooled_output)
         return pooled_output
-

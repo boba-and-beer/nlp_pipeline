@@ -15,23 +15,26 @@ from abc import ABC, abstractmethod
 from transformers import BertPreTrainedModel, BertModel
 from fastai.text import *
 from nlp_pipeline.models.pooler import *
-
-os.environ["WANDB_MODE"] = "dryrun"
+import pickle
 
 # Setting up notes for wandb
-notes = "Add Layernorm after dropout layer"
+notes = "Running 5-fold cross validation on the different folds"
+
 # change the name of the run to follow the features
 name = "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
-name = "ans_not_pretrained_" + name
-wandb.init(name=name, notes=notes, project="ans_googlequestchallenge")
+name = "q_not_pretrained_" + name
+wandb.init(name=name, notes=notes, project="q_googlequestchallenge")
 
-wandb.config.fold = 0
-wandb.config.opt_func = "ranger"
+dl_logger.info("Writing the file...")
+
+add_to_list("q_list.pkl", name)
+
 ## Features i do not want to change
 wandb.config.token_type = "Head Only"
 wandb.config.start_pct = 0.55
 wandb.config.wd = 0.05
 # opt func is either ranger of flatten anneal
+wandb.config.opt_func = "adam"
 wandb.config.dropout = 0.05
 wandb.config.betas_0 = 0.9
 wandb.config.betas_1 = 0.99
@@ -39,14 +42,10 @@ wandb.config.seed = random.randint(0, 999)
 bs = 8
 seed_all(wandb.config.seed)
 wandb.config.hidden_layer_output = 2
-
-wandb.config.with_features = True
+wandb.config.fold = 3
 
 model_logger.info(" The name of the model is %s", name)
 model_logger.info("The random seed is %d", wandb.config.seed)
-
-model_logger.info("Writing the file...")
-add_to_list(filehandler="ans_list.pkl", name=name)
 
 #####################################
 ### Loading Models
@@ -56,14 +55,19 @@ PRETRAINED_MODEL_NAME = "bert-base-uncased"
 
 DATASET_DIR = "googlequestchallenge/torch_datasets/"
 
-# Saving the model here
-OUTPUT_MODEL_DIR = Path("models", "ans_models", name)
+MODEL_NAME = name
+OUTPUT_MODEL_DIR = Path("..", "models", "ans_models", MODEL_NAME)
+
+create_dir(OUTPUT_MODEL_DIR)
 
 input_dir = Path("googlequestchallenge/data/raw")
 sample_submissions = pd.read_csv(input_dir / "sample_submission.csv")
+
 engineered_input_dir = Path("googlequestchallenge/data")
+
 train = pd.read_csv(engineered_input_dir / "train_engineered.csv")
 test = pd.read_csv(engineered_input_dir / "test_engineered.csv")
+
 
 #####################################
 ### Loading the datasets
@@ -71,12 +75,12 @@ test = pd.read_csv(engineered_input_dir / "test_engineered.csv")
 
 # Saving the datasets
 train_ans_dataset = torch.load(
-    DATASET_DIR + "train_ans_ds_" + str(wandb.config.fold) + "_" + feature_set
+    DATASET_DIR + "train_q_ds_" + str(wandb.config.fold) + "_" + feature_set
 )
 valid_ans_dataset = torch.load(
-    DATASET_DIR + "valid_ans_ds_" + str(wandb.config.fold) + "_" + feature_set
+    DATASET_DIR + "valid_q_ds_" + str(wandb.config.fold) + "_" + feature_set
 )
-test_ans_dataset = torch.load(DATASET_DIR + "test_ans_ds_" + feature_set)
+test_ans_dataset = torch.load(DATASET_DIR + "test_q_ds_" + feature_set)
 
 # Load in the custom tokenizer still
 pretrain_model.config.num_labels = len(ANSWER_LABELS)
@@ -84,15 +88,15 @@ pretrain_model.config.output_hidden_states = True
 
 # Defining the right sampler
 trn_ans_samp = SortishSampler(
-    train_ans_dataset, key=lambda x: len(train_ans_dataset.x), bs=bs
+    train_q_dataset, key=lambda x: len(train_q_dataset.x), bs=bs
 )
 
 valid_ans_samp = SortishSampler(
-    valid_ans_dataset, key=lambda x: len(valid_ans_dataset.x), bs=bs
+    valid_q_dataset, key=lambda x: len(valid_q_dataset.x), bs=bs
 )
 
 test_ans_samp = SortishSampler(
-    test_ans_dataset, key=lambda x: len(test_ans_dataset.x), bs=bs
+    test_q_dataset, key=lambda x: len(test_q_dataset.x), bs=bs
 )
 
 dl_kwargs = {
@@ -103,18 +107,15 @@ dl_kwargs = {
     "pin_memory": True,
 }
 
-train_ans_dl = DataLoader(train_ans_dataset, sampler=trn_ans_samp, **dl_kwargs)
-valid_ans_dl = DataLoader(valid_ans_dataset, sampler=valid_ans_samp, **dl_kwargs)
-test_ans_dl = DataLoader(test_ans_dataset, sampler=test_ans_samp, **dl_kwargs)
+train_q_dl = DataLoader(train_q_dataset, sampler=trn_q_samp, **dl_kwargs)
+valid_q_dl = DataLoader(valid_q_dataset, sampler=valid_q_samp, **dl_kwargs)
+test_q_dl = DataLoader(test_q_dataset, sampler=test_q_samp, **dl_kwargs)
 
 #####################################
 ### Model
 #####################################
 
-if wandb.config.with_features:
-    model_class = BertForFeatures
-else:
-    model_class = BertSequenceClassification
+model_class = BertSequenceClassification
 
 transformer_model = model_class.from_pretrained(
     PRETRAINED_MODEL_NAME,
@@ -123,18 +124,13 @@ transformer_model = model_class.from_pretrained(
     hidden_layer_output=wandb.config.hidden_layer_output,
 )
 
-if wandb.config.with_features:
-    # Add the number of custom features as well.
-    custom_transformer_model = CTMWithFeatures(
-        transformer_model, len(ANSWER_FEATURES + CAT_FEATURES)
-    )
-else:
-    custom_transformer_model = CustomTransformerModel(transformer_model)
+custom_transformer_model = CustomTransformerModel(transformer_model)
 
 # Save all models here - to upload to python
-ans_databunch = TextDataBunch(
-    train_dl=train_ans_dl, valid_dl=valid_ans_dl, test_dl=test_ans_dl, device="cuda:0"
+q_databunch = TextDataBunch(
+    train_dl=train_q_dl, valid_dl=valid_q_dl, test_dl=test_q_dl, device="cuda:0"
 )
+
 
 if wandb.config.opt_func == "ranger":
     opt_func = partial(
@@ -151,13 +147,8 @@ if wandb.config.opt_func == "adam":
         weight_decay=wandb.config.wd,
     )
 
-if wandb.config.with_features:
-    learn_class = BertFeatLearner
-else:
-    learn_class = BertLearner
-
-learner = learn_class(
-    ans_databunch,
+learner = BertLearner(
+    q_databunch,
     custom_transformer_model,
     opt_func=opt_func,
     bn_wd=False,
@@ -176,20 +167,12 @@ learner = learn_class(
             monitor="spearman_rho",
             mode="max",
             patience=3,
-            min_delta=0.004,
+            min_delta=0.4,
             min_lr=1e-6,
         ),
     ],
 ).to_fp16()
 
-#####################################
-### Saving the models
-#####################################
-# Save the model configs here.
-create_dir(OUTPUT_MODEL_DIR)
-transformer_model.save_pretrained(OUTPUT_MODEL_DIR)
-pretrain_model.config.save_pretrained(OUTPUT_MODEL_DIR)
-pretrain_model.tokeniser.save_pretrained(OUTPUT_MODEL_DIR)
 
 if __name__ == "__main__":
     learner.freeze()
@@ -236,26 +219,17 @@ if __name__ == "__main__":
         learn.callbacks.append(sched)
         learn.fit(n_epochs)
 
-    learner.model_dir = OUTPUT_MODEL_DIR
     freeze_to_counter = 1
     while freeze_to_counter < 5:
-        print("Freezing up to " + str(freeze_to_counter))
+        model_logger.info("Freezing up to " + str(freeze_to_counter))
         freeze_to = freeze_to_counter
         learner.freeze_to(-freeze_to)
+        learner.model_dir = OUTPUT_MODEL_DIR
         if wandb.config.opt_func == "adam":
-            learner.fit_one_cycle(3, max_lr=lr_array)
-            # Save the models
-            learner.save(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func,
-                with_opt=False,
-            )
+            learner.fit_one_cycle(2, max_lr=lr_array)
         if wandb.config.opt_func == "ranger":
             flattenAnneal(learner, lr, 4, wandb.config.start_pct)
-            # Save the models
-            learner.save(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func,
-                with_opt=False,
-            )
+            learner.save("q_tmp_" + str(freeze_to), with_opt=False)
             del learner
             gc.collect()
             torch.cuda.empty_cache()
@@ -271,20 +245,19 @@ if __name__ == "__main__":
                 ans_databunch,
                 custom_transformer_model,
                 opt_func=opt_func,
-                callback_fns=[
-                    partial(
-                        WandbCallback,
-                        save_model=True,
-                        mode="max",
-                        monitor="spearman_rho",
-                        seed=wandb.config.seed,
-                    )
-                ],
+                bn_wd=False,
+                true_wd=True,
+                metrics=[SpearmanRho()],
+                callback_fns=partial(
+                    WandbCallback,
+                    save_model=True,
+                    mode="max",
+                    monitor="spearman_rho",
+                    seed=wandb.config.seed,
+                ),
             ).to_fp16()
-
-            learner.load(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func
-            )
+            # Loading the model in for flatten anneal
             learner.model_dir = OUTPUT_MODEL_DIR
+            learner.load("q_tmp_" + str(freeze_to))
 
         freeze_to_counter += 1
