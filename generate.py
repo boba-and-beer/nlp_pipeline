@@ -3,12 +3,14 @@ Generate the required datasets in python.
 """
 from nlp_pipeline.textpreprocessing.text_to_tensor import *
 from nlp_pipeline.splits.split import *
+from nlp_pipeline.textpreprocessing.summary import *
 from utils import *
 
 # Important thing to look at
 import logging
 import random
 import string
+import argparse
 
 console_handler = logging.StreamHandler()
 
@@ -256,8 +258,16 @@ class QuestDataset(Dataset):
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]
 
+def main():
+    # Include a flag that lets you summarise text
+    text_parser = argparse.ArgumentParser(description='Process some integers.')
+    text_parser.add_argument('--nltk', dest='nltk', action='store_true',
+        help='Apply NTLK summarisation if required')
+    text_parser.add_argument('--bert', dest='bert', action='store_true',
+        help='Apply BERT Model summarisation if required')
 
-if __name__ == "__main__":
+    text_args = text_parser.parse_args()
+
     for i in range(5):
 
         #####################################
@@ -305,15 +315,51 @@ if __name__ == "__main__":
         test_answers = test_ans_x["answer"]
 
         #####################################
+        ### Applying Summarisation
+        #####################################
+        MIN_SUM_LIMIT = 150
+        all_text_data = [
+            train_questions, train_answers, 
+            valid_questions, valid_answers, 
+            test_questions, test_answers
+        ]
+        if text_args.nltk:
+            dl_logger.info("Summarising text using nltk...")
+            for text_data in tqdm(all_text_data):
+                for i, text in tqdm(enumerate(text_data)):
+                    if len(text.split(' ')) > MIN_SUM_LIMIT:
+                        text_data.iloc[i] = nltk_summarise(text, max_sent_len=15,
+                        n_largest=3)
+
+        if text_args.bert:
+            # Bert summariser
+            from summarizer import Summarizer
+            bert_model = Summarizer()
+            dl_logger.info("SUmmarising text using Bert...")
+            for i, text in tqdm(enumerate(train_answers)):
+                if len(text.split(' ')) > MIN_SUM_LIMIT:
+                    train_answers.iloc[i] = bert_model(text)
+            
+            for i, text in tqdm(enumerate(valid_answers)):
+                if len(text.split(' ')) > MIN_SUM_LIMIT:
+                    valid_answers.iloc[i] = bert_model(text)
+            
+            for i, text in tqdm(enumerate(test_answers)):
+                if len(text.split(' ')) > MIN_SUM_LIMIT:
+                    test_answers.iloc[i] = bert_model(text)
+
+        #####################################
         ### Converting Text to tensor
         #####################################
 
         dl_logger.info("Tokenising data using only head")
 
         # Input dataset
+        dl_logger.info("Tokenising Question data...")
         train_q_input_list, train_q_att_list = pretrain_model.convert_text_to_tensor(
             train_questions, head_prop=1
         )
+        dl_logger.info("Tokenising answer data...")
         (
             train_ans_input_list,
             train_ans_att_list,
@@ -435,3 +481,6 @@ if __name__ == "__main__":
         torch.save(
             test_ans_dataset, Path(DATASET_DIR, "test_ans_ds_" + feature_set),
         )
+
+if __name__ == "__main__":
+    main()
