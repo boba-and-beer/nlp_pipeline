@@ -15,6 +15,7 @@ from transformers import (
     DistilBertTokenizer,
     DistilBertConfig,
 )
+import tensorflow_hub as hub
 
 from typing import Union
 from pathlib import Path
@@ -29,7 +30,6 @@ class Text2Tensor:
     """
     Class that converts texts to tensors to be placed inside datasets.
     """
-
     MODEL_CLASSES = {
         "bert": (BertForSequenceClassification, BertTokenizer, BertConfig),
         "xlnet": (XLNetForSequenceClassification, XLNetTokenizer, XLNetConfig),
@@ -41,7 +41,6 @@ class Text2Tensor:
             DistilBertConfig,
         ),
     }
-
     def choose_model(self, model_name):
         if model_name == "bert":
             self.model_name = "bert-base-uncased"
@@ -62,24 +61,35 @@ class Text2Tensor:
         head_len=None,
         return_tensors="pt",
         max_length=None,
+        encode_method=None,
         **encode_params
     ):
         """
-        Text -> Match to ID
+        Converts text to tensor, the encoding method can be anything
         """
         train_tensors = []
         attention_masks = []
-        for i in tqdm(range(len(text))):
-            input_ids, attention_mask = self.encode_head_tail(
-                text.iloc[i],
-                head_len=head_len,
-                return_tensors=return_tensors,
-                max_length=max_length,
-                **encode_params
-            )
-            train_tensors.append(input_ids)
-            attention_masks.append(attention_mask)
-        return train_tensors, attention_masks
+
+        if encode_method is None:
+            for i in tqdm(range(len(text))):
+                input_ids, attention_mask = self.encode_head_tail(
+                    text.iloc[i],
+                    head_len=head_len,
+                    return_tensors=return_tensors,
+                    max_length=max_length,
+                    **encode_params
+                )
+                train_tensors.append(input_ids)
+                attention_masks.append(attention_mask)
+            return train_tensors, attention_masks
+        elif encode_method == "USE":
+            # We do not have good attention masks
+            for i in tqdm(range(len(text))):
+                input_ids = self.uni_sent_enc(text.iloc[i])
+                train_tensors.append(input_ids)
+                # Return list of None for attention mask
+            return train_tensors, None
+
 
     def encode_head_tail(
         self,
@@ -92,23 +102,17 @@ class Text2Tensor:
     ):
         """
         Encode the head and tail of the length.
+        By default includes head only.
         """
         # The proportion of head and tail tokens
-
-        try:
-            encoded_tokens = self.tokeniser.encode_plus(
-                text=text,
-                pad_to_max_length=True,
-                max_length=max_length,
-                truncation_strategy="do_not_truncate",
-                return_tensors=return_tensors,
-                add_special_tokens=add_special_tokens,
-            )
-        except:
-            import pdb
-
-            pdb.set_trace()
-
+        encoded_tokens = self.tokeniser.encode_plus(
+            text=text,
+            pad_to_max_length=True,
+            max_length=max_length,
+            truncation_strategy="do_not_truncate",
+            return_tensors=return_tensors,
+            add_special_tokens=add_special_tokens,
+        )
         input_ids = encoded_tokens["input_ids"]
         attention_mask = encoded_tokens["attention_mask"]
 
@@ -142,3 +146,18 @@ class Text2Tensor:
                 input_ids = input_ids.unsqueeze(0)
 
             return input_ids.flatten(), attention_mask.flatten()
+
+    def _load_embed(self, model_dir) -> None:
+        self.uni_sent_emb = hub.load(model_dir)
+
+    def uni_sent_enc(self, text: str, model_dir="models/universal_sentence_encoder"):
+        """Use the Universal sentence encoder with bet outcomes."""
+        if not hasattr(self, 'uni_sent_emb'):
+            self._load_embed(model_dir)
+        embedded_text = self.uni_sent_emb([text])
+        import pdb; pdb.set_trace()
+        numpy_conversion = embedded_text.numpy()
+        return torch.from_numpy(numpy_conversion)
+        
+    def bert_sent_enc(self, text):
+        raise NotImplementedError("Resolve why it outputs 768 dimensions.")

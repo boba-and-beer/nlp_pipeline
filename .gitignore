@@ -41,13 +41,7 @@ vignettes/*.pdf
 
 # knitr and R markdown default cache directories
 /*_cache/
-/cache/
-
-# Temporary files created by R markdown
-*.utf8.md
-*.knit.md
-
-##
+/cache/ill 
 ## Python Section - See https://github.com/github/gitignore/blob/master/Python.gitignore
 ##
 
@@ -462,3 +456,16 @@ __pycache__/
 # OpenCover UI analysis results
 OpenCover/
 junit/
+
+# Google datasets 
+googlequestchallenge/torch_datasets/*
+
+# All csv files 
+*.csv
+
+# All models 
+*/*.pth
+
+# all Json files 
+models/*
+wandb/*

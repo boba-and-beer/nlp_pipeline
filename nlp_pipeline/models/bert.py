@@ -175,6 +175,8 @@ class BertForFeatures(BertPreTrainedModel):
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
         self.hidden_layer_output = hidden_layer_output
+        self.dropout_rate = dropout_rate
+        
         # Adjust the number here based on the number of features to make
         hidden_size_and_features = config.hidden_size
 
@@ -197,6 +199,49 @@ class BertForFeatures(BertPreTrainedModel):
 
         outputs = self.bert(
             input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds
+        )
+
+        hidden_state = outputs[0]
+        pooled_output = outputs[1]
+        all_hid = outputs[2]
+        pooled_output = self.pooler(all_hid[-self.hidden_layer_output])
+        return pooled_output  # (loss), logits, (hidden_states), (attentions)
+
+class BertWithEmbeds(BertPreTrainedModel):
+    """
+    Edit the Default Bert For Sequence Classification
+    """
+
+    def __init__(self, config, dropout_rate, hidden_layer_output):
+        # best was dropout 0.15 -> classifier
+        super(BertWithEmbeds, self).__init__(config)
+        self.num_labels = config.num_labels
+        self.bert = BertModel(config)
+        self.hidden_layer_output = hidden_layer_output
+        self.dropout_rate = dropout_rate
+        
+        # Adjust the number here based on the number of features to make
+        hidden_size_and_features = config.hidden_size
+
+        # Adding a custom pooler
+        self.pooler = BertPooler(config.hidden_size)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.init_weights()
+
+    def forward(
+        self,
+        inputs_embeds=None,
+        engineered_features=None,
+        labels=None,
+    ):
+
+        outputs = self.bert(
+            input_ids=None,
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,
             position_ids=position_ids,

@@ -36,7 +36,7 @@ from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
 # Progress bar
 import types
-import tqdm
+from tqdm import tqdm
 
 # Text preprocessing
 from keras.preprocessing.sequence import pad_sequences
@@ -68,7 +68,6 @@ from ranger import Ranger
 from pathlib import Path
 import sys
 import random
-
 
 def seed_all(seed):
     torch.backends.cudnn.deterministic = True

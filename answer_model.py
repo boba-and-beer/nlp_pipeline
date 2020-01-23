@@ -16,17 +16,15 @@ from transformers import BertPreTrainedModel, BertModel
 from fastai.text import *
 from nlp_pipeline.models.pooler import *
 
-os.environ["WANDB_MODE"] = "dryrun"
-
 # Setting up notes for wandb
-notes = "Add Layernorm after dropout layer"
+notes = "Testing Universal Sentence Encoder"
+
 # change the name of the run to follow the features
-name = "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
-name = "ans_not_pretrained_" + name
+name = "".join(random.choices(string.ascii_uppercase + string.digits, k=3))
+name = "ans_use_" + name
+
 wandb.init(name=name, notes=notes, project="ans_googlequestchallenge")
 
-wandb.config.fold = 0
-wandb.config.opt_func = "ranger"
 ## Features i do not want to change
 wandb.config.token_type = "Head Only"
 wandb.config.start_pct = 0.55
@@ -42,11 +40,11 @@ wandb.config.hidden_layer_output = 2
 
 wandb.config.with_features = True
 
+# The 3 was 
+# if 'fold' not in wandb.config.keys(): wandb.config.fold = 3
+
 model_logger.info(" The name of the model is %s", name)
 model_logger.info("The random seed is %d", wandb.config.seed)
-
-model_logger.info("Writing the file...")
-add_to_list(filehandler="ans_list.pkl", name=name)
 
 #####################################
 ### Loading Models
@@ -136,20 +134,9 @@ ans_databunch = TextDataBunch(
     train_dl=train_ans_dl, valid_dl=valid_ans_dl, test_dl=test_ans_dl, device="cuda:0"
 )
 
-if wandb.config.opt_func == "ranger":
-    opt_func = partial(
-        Ranger, betas=(wandb.config.betas_0, wandb.config.betas_1), eps=wandb.config.wd
-    )
-
-if wandb.config.opt_func == "adam":
-    from transformers import AdamW
-
-    opt_func = partial(
-        AdamW,
-        correct_bias=False,
-        betas=(wandb.config.betas_0, wandb.config.betas_1),
-        weight_decay=wandb.config.wd,
-    )
+opt_func = partial(
+    Ranger, betas=(wandb.config.betas_0, wandb.config.betas_1), eps=wandb.config.wd
+)
 
 if wandb.config.with_features:
     learn_class = BertFeatLearner
@@ -186,30 +173,22 @@ learner = learn_class(
 ### Saving the models
 #####################################
 # Save the model configs here.
-create_dir(OUTPUT_MODEL_DIR)
-transformer_model.save_pretrained(OUTPUT_MODEL_DIR)
-pretrain_model.config.save_pretrained(OUTPUT_MODEL_DIR)
-pretrain_model.tokeniser.save_pretrained(OUTPUT_MODEL_DIR)
 
 if __name__ == "__main__":
+    # If this script is called, THEN add it to the directory and save the model
+    model_logger.info("Writing the file...")
+    add_to_list(filehandler="ans_list.pkl", name=name)
+    create_dir(OUTPUT_MODEL_DIR)
+
+    transformer_model.save_pretrained(OUTPUT_MODEL_DIR)
+    pretrain_model.config.save_pretrained(OUTPUT_MODEL_DIR)
+    pretrain_model.tokeniser.save_pretrained(OUTPUT_MODEL_DIR)
+
     learner.freeze()
     learner.lr_find()
     lr = learner.recorder.lrs[np.array(learner.recorder.losses).argmin()] / 10
 
     model_logger.info("We chose to use lR: %d", lr)
-    lr_array = np.array(
-        [
-            lr / (2.6 ** 8),
-            lr / (2.6 ** 7),
-            lr / (2.6 ** 6),
-            lr / (2.6 ** 5),
-            lr / (2.6 ** 4),
-            lr / (2.6 ** 3),
-            lr / (2.6 ** 2),
-            lr / (2.6 ** 1),
-            lr,
-        ]
-    )
 
     def flattenAnneal(learn: Learner, lr: float, n_epochs: int, start_pct: float):
         n = len(learn.data.train_dl)
@@ -238,53 +217,49 @@ if __name__ == "__main__":
 
     learner.model_dir = OUTPUT_MODEL_DIR
     freeze_to_counter = 1
-    while freeze_to_counter < 5:
-        print("Freezing up to " + str(freeze_to_counter))
+    while freeze_to_counter < 6:
         freeze_to = freeze_to_counter
+        model_logger.info("Freezing up to "+str(freeze_to))
+        # Saving the model name
+        model_save_name = name + "_" + str(wandb.config.fold) + str(freeze_to)
         learner.freeze_to(-freeze_to)
-        if wandb.config.opt_func == "adam":
-            learner.fit_one_cycle(3, max_lr=lr_array)
-            # Save the models
-            learner.save(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func,
-                with_opt=False,
-            )
-        if wandb.config.opt_func == "ranger":
-            flattenAnneal(learner, lr, 4, wandb.config.start_pct)
-            # Save the models
-            learner.save(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func,
-                with_opt=False,
-            )
-            del learner
-            gc.collect()
-            torch.cuda.empty_cache()
-
-            ans_databunch = TextDataBunch(
-                train_dl=train_ans_dl,
-                valid_dl=valid_ans_dl,
-                test_dl=test_ans_dl,
-                device="cuda:0",
-            )
-
-            learner = BertLearner(
-                ans_databunch,
-                custom_transformer_model,
-                opt_func=opt_func,
-                callback_fns=[
+        flattenAnneal(learner, lr, 5, wandb.config.start_pct)
+        # Save the models 
+        learner.save(model_save_name, with_opt=False)
+        del learner
+        gc.collect()
+        torch.cuda.empty_cache()
+        ans_databunch = TextDataBunch(
+            train_dl=train_ans_dl,
+            valid_dl=valid_ans_dl,
+            test_dl=test_ans_dl,
+            device="cuda:0",
+        )
+        
+        learner = learn_class(
+            ans_databunch,
+            custom_transformer_model,
+            opt_func=opt_func,
+            metrics=[SpearmanRho()],
+            callback_fns=[
+                partial(
+                    WandbCallback,
+                    save_model=True,
+                    mode="max",
+                    monitor="spearman_rho",
+                    seed=wandb.config.seed,
+                ),
                     partial(
-                        WandbCallback,
-                        save_model=True,
-                        mode="max",
-                        monitor="spearman_rho",
-                        seed=wandb.config.seed,
-                    )
-                ],
-            ).to_fp16()
-
-            learner.load(
-                name + "_" + wandb.config.fold + str(freeze_to) + wandb.config.opt_func
-            )
-            learner.model_dir = OUTPUT_MODEL_DIR
-
+                    ReduceLROnPlateauCallback,
+                    monitor="spearman_rho",
+                    mode="max",
+                    patience=3,
+                    min_delta=0.004,
+                    min_lr=1e-6,
+                )
+            ],
+        ).to_fp16()
+        # Kaggle is better than a legal drug
+        learner.model_dir = OUTPUT_MODEL_DIR
+        learner.load(model_save_name);
         freeze_to_counter += 1

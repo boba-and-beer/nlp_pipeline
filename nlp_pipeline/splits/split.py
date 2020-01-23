@@ -18,7 +18,7 @@ def multilabelstratsplit(
     return data.loc[train_index], data.loc[test_index]
 
 
-def groupkfold(data, index=0, num_of_splits=5, train_size=0.8, **kwargs):
+def groupkfold(data: pd.DataFrame, group_col: str, index=0, num_of_splits=5, train_size=0.8, **kwargs):
     """
     GroupKFold Split of data 
     """
@@ -26,7 +26,7 @@ def groupkfold(data, index=0, num_of_splits=5, train_size=0.8, **kwargs):
     gss = GroupShuffleSplit(
         num_of_splits, train_size=train_size, test_size=1 - train_size, **kwargs
     )
-    indices = list(gss.split(X=data, y=data, groups=data["question_title"]))
+    indices = list(gss.split(X=data, y=data, groups=group_col))
     train_index, test_index = indices[index]
     return data.loc[train_index], data.loc[test_index]
 
